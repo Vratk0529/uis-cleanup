@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         UIS STUBA – prehľadnejší dashboard
 // @namespace    https://is.stuba.sk/
-// @version      1.1.0
+// @version      1.2.0
 // @description  Odstráni balast z osobnej administratívy UIS (hry, oznamy) a dá známky a rozvrh na prvé miesto.
 // @author       Vratko Hajdučík
 // @match        https://is.stuba.sk/auth/*
@@ -237,6 +237,12 @@
   body.ub-on #automatic-go-to-page-end { display: none !important; }
 
   body.ub-on .ub-hidden-section { display: none !important; }
+
+  /* --- žiadne "Ďalšie aplikácie" / "Menej aplikácií" ---
+     UIS časť položiek v sekcii schová za rozbaľovaciu šípku v .sekce-drive.
+     Položky ukážeme všetky a samotný prepínač odstránime. */
+  body.ub-on li.polozka-hidden { display: list-item !important; }
+  body.ub-on .sekce-drive { display: none !important; }
   `;
 
   const style = document.createElement('style');
