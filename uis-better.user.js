@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         UIS STUBA – prehľadnejší dashboard
 // @namespace    https://is.stuba.sk/
-// @version      1.0.0
+// @version      1.1.0
 // @description  Odstráni balast z osobnej administratívy UIS (hry, oznamy) a dá známky a rozvrh na prvé miesto.
 // @author       Vratko Hajdučík
 // @match        https://is.stuba.sk/auth/*
@@ -19,9 +19,9 @@
    * ------------------------------------------------------------------ */
 
   // Sekcie skryté v predvolenom nastavení. Kľúč je id divu (sekce-NN).
-  // 165 = "Herňa pre chvíle oddychu" (hry), 38 = "Technológie a ich správa",
-  // 31 = "Dokumentácia UIS", 1001 = "Ochrana osobných údajov".
-  const DEFAULT_HIDDEN = ['sekce-165', 'sekce-31', 'sekce-1001'];
+  // 165 = "Herňa pre chvíle oddychu" (hry), 31 = "Dokumentácia UIS",
+  // 1001 = "Ochrana osobných údajov", 1281 = "Mobilná aplikácia Moje štúdium".
+  const DEFAULT_HIDDEN = ['sekce-165', 'sekce-31', 'sekce-1001', 'sekce-1281'];
 
   // Poradie sekcií. Čím nižšie číslo, tým vyššie na stránke.
   // Sekcie, ktoré tu nie sú, skončia za nimi v pôvodnom poradí.
@@ -62,6 +62,22 @@
   };
 
   const isDashboard = /^\/auth\/(index\.pl)?$/.test(location.pathname);
+
+  /* ------------------------------------------------------------------ *
+   * Slovenčina ako predvolený jazyk
+   * ------------------------------------------------------------------ */
+
+  // Účet má v UIS nastavenú angličtinu, takže stránka otvorená bez ?lang=
+  // príde po anglicky. Doplníme ho reťazcovo – prechod cez URLSearchParams
+  // by query string preusporiadal a UIS by vrátil prázdnu stránku.
+  // Explicitné lang=en (prepnutie vlajkou) rešpektujeme.
+  function redirectedToSlovak() {
+    if (/[?&]lang=/.test(location.search)) return false;
+    const sep = location.search ? '&' : '?';
+    location.replace(location.pathname + location.search + sep + 'lang=sk' + location.hash);
+    return true;
+  }
+  if (redirectedToSlovak()) return;
 
   /* ------------------------------------------------------------------ *
    * Štýly
@@ -179,16 +195,46 @@
   #ub-settings hr { border: 0; border-top: 1px solid var(--ub-border); margin: 10px 0; }
   #ub-settings .ub-note { color: var(--ub-muted); font-size: 11.5px; margin-top: 10px; }
 
-  /* --- zoštíhlená hlavička (zo 170 px na ~72 px) ---
+  /* --- zoštíhlená hlavička (zo 170 px na 46 px) ---
      #hlavicka má pevnú výšku 170 px, #univerzita je len veľký dekoratívny
-     nadpis. Logo STU je pozadím #ie1, takže ten skrývať nemôžeme. */
+     nadpis. Logo STU je pozadím #ie1, takže ten skrývať nemôžeme.
+     Celé #menu (odkazy fakúlt, počítadlá, prihlásený) ide preč – počítadlá
+     sú v našej lište a meno s odhlásením presúvame hore do #ie1. */
   body.ub-on #hlavicka { height: auto !important; }
   body.ub-on #ie1 {
     height: 46px !important;
     background-size: auto 30px !important;
     background-position: 14px 8px !important;
   }
-  body.ub-on #univerzita { display: none !important; }
+  body.ub-on #univerzita,
+  body.ub-on #menu { display: none !important; }
+
+  body.ub-on #ub-topright {
+    position: absolute; right: 8px; top: 0; height: 46px;
+    display: flex; align-items: center; gap: 14px;
+    font: 12px/1 system-ui, -apple-system, "Segoe UI", sans-serif; color: #fff;
+  }
+  body.ub-on #ub-topright #svatek,
+  body.ub-on #ub-topright #vlajky {
+    position: static !important; display: flex; align-items: center; gap: 5px;
+  }
+  body.ub-on #ub-topright #log {
+    float: none !important; display: flex; align-items: center; gap: 6px; white-space: nowrap;
+  }
+  body.ub-on #ub-topright a { color: #fff; }
+  body.ub-on #ub-logout {
+    display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px;
+    border: 1px solid rgba(255,255,255,.45); border-radius: 5px;
+    color: #fff; text-decoration: none; font-weight: 600; white-space: nowrap;
+  }
+  body.ub-on #ub-logout:hover { background: rgba(255,255,255,.16); }
+
+  /* --- balast na konci stránky ---
+     Šípky UIS pridáva a skrýva pri scrollovaní, preto ich radšej schováme
+     cez CSS, než aby sme ich odstraňovali z DOM. */
+  body.ub-on .operinfo,
+  body.ub-on #automatic-back-to-home,
+  body.ub-on #automatic-go-to-page-end { display: none !important; }
 
   body.ub-on .ub-hidden-section { display: none !important; }
   `;
@@ -249,6 +295,45 @@
       else if (path.includes('/todo/')) out.todo = n;
     });
     return out;
+  }
+
+  // Meniny sú v #svatek ako ikona s title="Meniny má" a textový uzol za ňou;
+  // dátum s časom v tom istom bloku si necháme.
+  function dropNameday(svatek) {
+    [...svatek.childNodes].forEach((node, i, all) => {
+      if (node.nodeType !== 1) return;
+      const isNameday = [...node.querySelectorAll('img')].some(img => /meniny/i.test(img.title || ''));
+      if (!isNameday) return;
+      const next = all[i + 1];
+      if (next && next.nodeType === 3) next.remove();
+      node.remove();
+    });
+  }
+
+  // Dátum, prihláseného používateľa, odhlásenie a vlajky zlúčime do jedného
+  // riadka vpravo hore, aby mohol celý pruh #menu zmiznúť.
+  function slimHeader() {
+    const ie1 = document.getElementById('ie1');
+    if (!ie1 || document.getElementById('ub-topright')) return;
+
+    const cluster = el('div', { id: 'ub-topright' });
+    const svatek = document.getElementById('svatek');
+    if (svatek) { dropNameday(svatek); cluster.append(svatek); }
+
+    const log = document.getElementById('log');
+    if (log) cluster.append(log);
+
+    const logout = document.querySelector('#ikonky a[href*="logout"]');
+    if (logout) {
+      logout.id = 'ub-logout';
+      logout.textContent = 'Odhlásiť';
+      cluster.append(logout);
+    }
+
+    const vlajky = document.getElementById('vlajky');
+    if (vlajky) cluster.append(vlajky);
+
+    ie1.append(cluster);
   }
 
   function buildBar() {
@@ -579,7 +664,11 @@
    * Štart
    * ------------------------------------------------------------------ */
 
+  // buildBar číta počítadlá z #menu, ktoré je v tom čase už schované cez CSS –
+  // textContent aj a.pathname fungujú aj na display:none prvkoch.
+  // slimHeader musí ísť až po ňom, ten už #log a odhlásenie z #menu vyberá.
   buildBar();
+  slimHeader();
 
   if (isDashboard) {
     applySections();
