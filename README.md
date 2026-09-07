@@ -34,7 +34,9 @@ toolbar plus two data cards fetched straight from UIS.
 **Cards on the dashboard**
 
 - **🗓 Rozvrh – najbližších 7 dní** — submits the timetable form in the background for today + 6 days
-  and renders the result inline, restyled.
+  and renders the result inline, restyled. **Not tested yet** — it was written against the timetable
+  form's markup but has not been verified during a period with published timetables, so expect it to
+  need fixing.
 - **📊 Známky a kredity** — parses the E-index: subject code, name, form of completion, colour-coded
   grade, credits, plus credit totals and the period average.
 
@@ -91,6 +93,5 @@ page down.
 
 Only pages under `https://is.stuba.sk/auth/*` are touched; the cards are built on the dashboard alone.
 
-## Licence
-
-MIT.
+The grades card and the header/toolbar cleanup are in daily use. The timetable card is the untested
+part; if it misbehaves, turn it off in ⚙ and open the timetable directly from the toolbar.
