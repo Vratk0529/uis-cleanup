@@ -86,7 +86,7 @@ Two quirks worth knowing if you plan to change it:
 
 ## Compatibility
 
-Written against the UIS layout as of 2025. It leans on UIS's own ids and class names (`#hlavicka`,
+Written against the UIS layout as of 2026. It leans on UIS's own ids and class names (`#hlavicka`,
 `#ie1`, `#ema`, `sekce-NN`, `#tmtab_1`, `.zasadka`, …), so a redesign upstream will break parts of it.
 Each feature is independent — a broken card shows an error and a fallback link rather than taking the
 page down.
