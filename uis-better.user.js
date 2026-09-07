@@ -3,7 +3,7 @@
 // @namespace    https://is.stuba.sk/
 // @version      1.3.0
 // @description  Odstráni balast z osobnej administratívy UIS (hry, oznamy) a dá známky a rozvrh na prvé miesto.
-// @author       Vratko Hajdučík
+// @author       Vratko
 // @match        https://is.stuba.sk/auth/*
 // @icon         https://is.stuba.sk/favicon.ico
 // @grant        GM_setValue
