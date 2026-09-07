@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         UIS STUBA – prehľadnejší dashboard
 // @namespace    https://is.stuba.sk/
-// @version      1.2.0
+// @version      1.3.0
 // @description  Odstráni balast z osobnej administratívy UIS (hry, oznamy) a dá známky a rozvrh na prvé miesto.
 // @author       Vratko Hajdučík
 // @match        https://is.stuba.sk/auth/*
@@ -209,6 +209,16 @@
   body.ub-on #univerzita,
   body.ub-on #menu { display: none !important; }
 
+  /* Logo STU je pozadie #ie1, nie obrázok, takže naň položíme priehľadný
+     odkaz na Osobnú administratívu – to isté, kam vedie domček v omrvinkách.
+     Logo sa vykresľuje ako 192x30 px na pozícii 14,8; 220 px stačí naň aj s
+     rezervou a stále je ďaleko od pravého bloku (ten začína okolo 1087 px). */
+  body.ub-on #ie1 { position: relative; }
+  body.ub-on #ub-home {
+    position: absolute; left: 0; top: 0; width: 220px; height: 46px;
+    display: block; cursor: pointer; text-indent: -9999px; overflow: hidden;
+  }
+
   body.ub-on #ub-topright {
     position: absolute; right: 8px; top: 0; height: 46px;
     display: flex; align-items: center; gap: 14px;
@@ -321,6 +331,15 @@
   function slimHeader() {
     const ie1 = document.getElementById('ie1');
     if (!ie1 || document.getElementById('ub-topright')) return;
+
+    if (!document.getElementById('ub-home')) {
+      ie1.prepend(el('a', {
+        id: 'ub-home',
+        href: '/auth/?lang=sk',
+        title: 'Osobná administratíva',
+        textContent: 'Osobná administratíva',
+      }));
+    }
 
     const cluster = el('div', { id: 'ub-topright' });
     const svatek = document.getElementById('svatek');
