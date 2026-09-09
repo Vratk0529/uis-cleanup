@@ -33,13 +33,15 @@ toolbar plus two data cards fetched straight from UIS.
 
 **Cards on the dashboard**
 
-- **🗓 Osobný rozvrh** — the personal weekly timetable grid, full width at the top of the dashboard,
-  copied from UIS as it renders it: same lecture/exercise colours, same column widths. It scrolls
-  horizontally on narrow screens rather than squeezing 143 columns into nothing.
+- **🗓 Osobný rozvrh** — the personal weekly timetable grid at the top of the dashboard, copied from
+  UIS as it renders it: same lecture/exercise colours, same column widths. It scrolls horizontally
+  on narrow screens rather than squeezing 143 columns into nothing.
 - **📊 Známky a kredity** — parses the E-index: subject code, name, form of completion, colour-coded
-  grade, credits, plus credit totals and the period average.
+  grade, credits, plus credit totals and the period average in a column beside the table. Subject
+  names keep the link to their syllabus, exactly as they carry it in UIS.
 
-Both cards fall back to a plain "open it directly in UIS" link if the fetch or parse fails.
+Both cards span the full width of the dashboard, stacked above the section tiles, and fall back to a
+plain "open it directly in UIS" link if the fetch or parse fails.
 
 **Cleanup**
 

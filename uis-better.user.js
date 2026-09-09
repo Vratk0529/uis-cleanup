@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         UIS STUBA – prehľadnejší dashboard
 // @namespace    https://is.stuba.sk/
-// @version      1.4.0
+// @version      1.5.0
 // @description  Odstráni balast z osobnej administratívy UIS (hry, oznamy) a dá známky a rozvrh na prvé miesto.
 // @author       Vratko
 // @match        https://is.stuba.sk/auth/*
@@ -170,6 +170,16 @@
   table.ub-table tr:last-child td { border-bottom: 0; }
   table.ub-table td.ub-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ub-muted); white-space: nowrap; }
   table.ub-table td.ub-num { text-align: right; white-space: nowrap; }
+  table.ub-table td a { color: var(--ub-accent); text-decoration: none; }
+  table.ub-table td a:hover { text-decoration: underline; }
+
+  /* Známky sú tiež cez celú šírku, takže tabuľka ide vľavo a súhrnné čísla do
+     stĺpca vpravo – vedľa seba zaplnia riadok, pod sebou by nechali pol karty
+     prázdnej. */
+  .ub-grades { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; }
+  .ub-grades > .ub-subjects { flex: 1 1 420px; min-width: 0; }
+  .ub-grades > .ub-stats { flex: 0 0 220px; flex-direction: column; margin-top: 0; }
+  .ub-grades > .ub-stats .ub-stat { flex: 0 0 auto; }
 
   .ub-mark {
     display: inline-block; min-width: 20px; padding: 1px 7px; border-radius: 4px;
@@ -472,7 +482,14 @@
     const eindex = linkByText(doc, 'E-index') || linkByText(doc, 'E-study record');
     if (!eindex) throw new Error('Odkaz na E-index sa nenašiel.');
 
-    const gd = await fetchDoc(resolveHref(eindex.getAttribute('href')));
+    const eindexUrl = resolveHref(eindex.getAttribute('href'));
+    const gd = await fetchDoc(eindexUrl);
+
+    // Odkazy v E-indexe sú relatívne voči /auth/student/, nie voči nástenke.
+    const fromEindex = href => {
+      const u = new URL(href, new URL(eindexUrl, location.origin));
+      return u.pathname + u.search;
+    };
 
     const table = gd.querySelector('#tmtab_1');
     if (!table) { body.append(el('p', { className: 'ub-empty', textContent: 'Zoznam predmetov sa nepodarilo načítať.' })); return; }
@@ -480,7 +497,13 @@
     const idx = columnIndexes(table);
     const rows = [...table.rows].slice(1).filter(r => r.cells.length > 2);
 
-    const out = el('table', { className: 'ub-table' },
+    // Bez šírok by prehliadač rozhádzal päť stĺpcov po celej šírke karty.
+    // Predmet necháme bez šírky, nech zožerie zvyšok a krátke stĺpce zostanú
+    // pokope pri pravom okraji.
+    const cols = el('colgroup',
+      {}, ...['90px', null, '52px', '96px', '52px'].map(w => el('col', w ? { style: 'width:' + w } : {})));
+
+    const out = el('table', { className: 'ub-table' }, cols,
       el('thead', {}, el('tr', {},
         el('th', { textContent: 'Kód' }),
         el('th', { textContent: 'Predmet' }),
@@ -492,11 +515,21 @@
     const tbody = el('tbody');
 
     rows.forEach(r => {
-      const cell = k => (idx[k] >= 0 && r.cells[idx[k]] ? clean(r.cells[idx[k]].textContent) : '');
+      const at = k => (idx[k] >= 0 ? r.cells[idx[k]] || null : null);
+      const cell = k => { const c = at(k); return c ? clean(c.textContent) : ''; };
       const result = cell('result');
+
+      // V E-indexe je názov predmetu odkaz na sylabus; nesieme ho so sebou,
+      // nech sa dá z nástenky prekliknúť rovnako ako v UIS.
+      const nameCell = at('name');
+      const nameLink = nameCell && nameCell.querySelector('a[href]');
+      const name = nameLink
+        ? el('a', { href: fromEindex(nameLink.getAttribute('href')), textContent: cell('name') })
+        : cell('name');
+
       tbody.append(el('tr', {},
         el('td', { className: 'ub-code', textContent: cell('code') }),
-        el('td', { textContent: cell('name') }),
+        el('td', {}, name),
         el('td', { className: 'ub-code', textContent: cell('end') }),
         el('td', {}, el('span', { className: 'ub-mark ' + markClass(result), textContent: result || '–' })),
         el('td', { className: 'ub-num', textContent: cell('credits') }),
@@ -504,7 +537,15 @@
     });
 
     out.append(tbody);
-    body.append(rows.length ? out : el('p', { className: 'ub-empty', textContent: 'Zatiaľ žiadne zapísané predmety.' }));
+    if (!rows.length) {
+      body.append(el('p', { className: 'ub-empty', textContent: 'Zatiaľ žiadne zapísané predmety.' }));
+      return;
+    }
+
+    // Tabuľka vľavo, súhrnné čísla v stĺpci vpravo – inak by karta cez celú
+    // šírku nechala vedľa úzkej tabuľky poriadny kus prázdna.
+    const layout = el('div', { className: 'ub-grades' }, el('div', { className: 'ub-subjects' }, out));
+    body.append(layout);
 
     // Súhrnné čísla z druhej tabuľky (dvojstĺpcová: popis ~ hodnota).
     const stats = gd.querySelector('#tmtab_2');
@@ -524,7 +565,7 @@
     add(ziskane, 'získaných kreditov');
     add(zapisane, 'zapísaných kreditov');
     add(priemer, 'priemer');
-    if (box.children.length) body.append(box);
+    if (box.children.length) layout.append(box);
   }
 
   /* ------------------------------------------------------------------ *
@@ -613,7 +654,8 @@
         renderSchedule, 'ub-wide');
     }
     if (settings.showGrades) {
-      load('📊 Známky a kredity', '/auth/student/pruchod_studiem.pl?lang=sk', 'celý E-index', renderGrades);
+      load('📊 Známky a kredity', '/auth/student/pruchod_studiem.pl?lang=sk', 'celý E-index',
+        renderGrades, 'ub-wide');
     }
   }
 
