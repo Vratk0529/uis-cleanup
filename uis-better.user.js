@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         UIS STUBA – prehľadnejší dashboard
 // @namespace    https://is.stuba.sk/
-// @version      1.5.0
+// @version      1.5.1
 // @description  Odstráni balast z osobnej administratívy UIS (hry, oznamy) a dá známky a rozvrh na prvé miesto.
 // @author       Vratko
 // @match        https://is.stuba.sk/auth/*
@@ -281,6 +281,8 @@
      Položky ukážeme všetky a samotný prepínač odstránime. */
   body.ub-on li.polozka-hidden { display: list-item !important; }
   body.ub-on .sekce-drive { display: none !important; }
+  /* Bez tých šípok už niet čo otvárať ani zatvárať. */
+  body.ub-on .menitko-all { display: none !important; }
   `;
 
   const style = document.createElement('style');
