@@ -25,7 +25,7 @@ toolbar plus two data cards fetched straight from UIS.
 | Link | Target |
 | --- | --- |
 | 📊 Známky | Priebeh štúdia |
-| 🗓 Rozvrh | Osobný rozvrh |
+| 🗓 Rozvrh | Osobný rozvrh (resolved once, not the criteria form) |
 | 🎓 Portál študenta | Moje štúdium |
 | 📝 Termíny skúšok | Zoznam termínov |
 | 📚 Materiály | Dokumentový server |
@@ -33,10 +33,9 @@ toolbar plus two data cards fetched straight from UIS.
 
 **Cards on the dashboard**
 
-- **🗓 Rozvrh – najbližších 7 dní** — submits the timetable form in the background for today + 6 days
-  and renders the result inline, restyled. **Not tested yet** — it was written against the timetable
-  form's markup but has not been verified during a period with published timetables, so expect it to
-  need fixing.
+- **🗓 Osobný rozvrh** — the personal weekly timetable grid, full width at the top of the dashboard,
+  copied from UIS as it renders it: same lecture/exercise colours, same column widths. It scrolls
+  horizontally on narrow screens rather than squeezing 143 columns into nothing.
 - **📊 Známky a kredity** — parses the E-index: subject code, name, form of completion, colour-coded
   grade, credits, plus credit totals and the period average.
 
@@ -76,22 +75,29 @@ Defaults live at the top of the script — `DEFAULT_HIDDEN` (hidden section ids)
 Nothing is scraped from a private API; the script re-uses the same pages the browser would load, with
 `credentials: 'same-origin'`, and reads them with `DOMParser`.
 
-Two quirks worth knowing if you plan to change it:
+Some quirks worth knowing if you plan to change it:
 
 - **Query strings are fragile.** Passing a UIS URL through `URLSearchParams` reorders the parameters
   and the server answers with an empty page. Hrefs are therefore only resolved to an absolute path
   and otherwise left byte-for-byte alone.
 - **The STU logo is a CSS background** of `#ie1`, not an `<img>`, so it cannot be hidden or wrapped;
   the link is a transparent overlay positioned on top of it.
+- **`rozvrhy_view.pl` on its own is only the criteria form.** The timetable itself lives behind a
+  per-study `rozvrh_student_obec` parameter, which the script looks up once in Portál študenta and
+  then remembers; if the remembered link stops yielding a grid (new semester), it is dropped and
+  looked up again.
+- **The `lang=sk` redirect only fires when the page actually came back in another language**, decided
+  from `<meta name="lang">`. Redirecting on every URL without `lang=` used to destroy the timetable:
+  it is displayed by a POST to a URL with no query string, so the script replaced the result with a
+  fresh GET — and that GET returns the criteria form.
 
 ## Compatibility
 
 Written against the UIS layout as of 2026. It leans on UIS's own ids and class names (`#hlavicka`,
-`#ie1`, `#ema`, `sekce-NN`, `#tmtab_1`, `.zasadka`, …), so a redesign upstream will break parts of it.
-Each feature is independent — a broken card shows an error and a fallback link rather than taking the
-page down.
+`#ie1`, `#ema`, `sekce-NN`, `#tmtab_1`, `.zasadka`, `.rozvrh-pred`, …), so a redesign upstream will
+break parts of it. Each feature is independent — a broken card shows an error and a fallback link
+rather than taking the page down.
 
 Only pages under `https://is.stuba.sk/auth/*` are touched; the cards are built on the dashboard alone.
 
-The grades card and the header/toolbar cleanup are in daily use. The timetable card is the untested
-part; if it misbehaves, turn it off in ⚙ and open the timetable directly from the toolbar.
+If a card misbehaves, turn it off in ⚙ and use the toolbar link to open the page directly in UIS.

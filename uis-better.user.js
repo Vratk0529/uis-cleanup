@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         UIS STUBA – prehľadnejší dashboard
 // @namespace    https://is.stuba.sk/
-// @version      1.3.0
+// @version      1.4.0
 // @description  Odstráni balast z osobnej administratívy UIS (hry, oznamy) a dá známky a rozvrh na prvé miesto.
 // @author       Vratko
 // @match        https://is.stuba.sk/auth/*
@@ -68,11 +68,22 @@
    * ------------------------------------------------------------------ */
 
   // Účet má v UIS nastavenú angličtinu, takže stránka otvorená bez ?lang=
-  // príde po anglicky. Doplníme ho reťazcovo – prechod cez URLSearchParams
+  // môže prísť po anglicky. Doplníme ho reťazcovo – prechod cez URLSearchParams
   // by query string preusporiadal a UIS by vrátil prázdnu stránku.
   // Explicitné lang=en (prepnutie vlajkou) rešpektujeme.
+  //
+  // Presmerúvame len vtedy, keď stránka naozaj prišla v inom jazyku. Slepé
+  // presmerovanie zabíjalo výsledky formulárov: rozvrh sa zobrazuje POSTom na
+  // /auth/katalog/rozvrhy_view.pl, ktorý v URL žiadne lang= nemá, takže sme ho
+  // hneď po zobrazení nahradili GETom – a ten vráti len výber kritérií.
+  function pageLang() {
+    const meta = document.querySelector('meta[name="lang"]');
+    return meta ? (meta.content || '').toLowerCase() : '';
+  }
+
   function redirectedToSlovak() {
     if (/[?&]lang=/.test(location.search)) return false;
+    if (pageLang() === 'sk') return false;
     const sep = location.search ? '&' : '?';
     location.replace(location.pathname + location.search + sep + 'lang=sk' + location.hash);
     return true;
@@ -140,8 +151,15 @@
     display: flex; align-items: center; justify-content: space-between; gap: 10px;
   }
   .ub-card h2 a { color: #fff; font-size: 12px; font-weight: 600; opacity: .9; }
+  .ub-card.ub-wide { grid-column: 1 / -1; }
   .ub-card-body { padding: 10px 14px 14px; }
   .ub-empty { color: var(--ub-muted); font-style: italic; padding: 6px 0; }
+
+  /* Rozvrhová mriežka ide dnu tak, ako ju vykreslí UIS – vlastné písmo, vlastné
+     farby, vlastné šírky. Na úzkej obrazovke radšej scrollujeme, než by sa
+     143 stĺpcov stlačilo na nečitateľnú kašu. */
+  .ub-timetable { overflow-x: auto; }
+  .ub-timetable table { min-width: 1000px; font: 12.8px verdana, arial, helvetica, sans-serif; }
 
   table.ub-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
   table.ub-table th {
@@ -294,6 +312,33 @@
     return [...doc.querySelectorAll('a')].find(a => clean(a.textContent) === text) || null;
   }
 
+  const withSlovak = url =>
+    /[?&]lang=/.test(url) ? url : url + (url.includes('?') ? '&' : '?') + 'lang=sk';
+
+  // Odkaz na osobný rozvrh nesie rozvrh_student_obec=NN, ktoré je pre každé
+  // štúdium iné; bez neho rozvrhy_view.pl ukáže iba výber kritérií. Dohľadáme
+  // ho v Portáli študenta a zapamätáme si ho, nech to nie je fetch navyše pri
+  // každom načítaní stránky. Ak by odkaz zvetral (nový semester), renderSchedule
+  // pamäť zahodí a dohľadá ho znovu.
+  let scheduleUrlPromise = null;
+  function personalScheduleUrl() {
+    return (scheduleUrlPromise ||= (async () => {
+      const cached = store.get('scheduleUrl', null);
+      if (cached) return cached;
+      const doc = await studentDoc();
+      const link = linkByText(doc, 'Osobný rozvrh') || linkByText(doc, 'Personal timetable');
+      if (!link) throw new Error('Odkaz na osobný rozvrh sa nenašiel.');
+      const url = withSlovak(resolveHref(link.getAttribute('href')));
+      store.set('scheduleUrl', url);
+      return url;
+    })());
+  }
+
+  function forgetScheduleUrl() {
+    store.set('scheduleUrl', null);
+    scheduleUrlPromise = null;
+  }
+
   /* ------------------------------------------------------------------ *
    * Horná lišta
    * ------------------------------------------------------------------ */
@@ -375,9 +420,14 @@
       return a;
     };
 
+    // Holé rozvrhy_view.pl je len výber kritérií, takže odkaz hneď po dohľadaní
+    // prepneme na osobný rozvrh. Kým sa dohľadá, vedie aspoň na ten výber.
+    const rozvrh = mk('🗓 Rozvrh', '/auth/katalog/rozvrhy_view.pl?lang=sk', { primary: true });
+    personalScheduleUrl().then(url => { rozvrh.href = url; }).catch(() => { /* necháme výber kritérií */ });
+
     const bar = el('div', { id: 'ub-bar' },
       mk('📊 Známky', '/auth/student/pruchod_studiem.pl?lang=sk', { primary: true }),
-      mk('🗓 Rozvrh', '/auth/katalog/rozvrhy_view.pl?lang=sk', { primary: true }),
+      rozvrh,
       mk('🎓 Portál študenta', '/auth/student/moje_studium.pl?lang=sk'),
       mk('📝 Termíny skúšok', '/auth/student/terminy_seznam.pl?lang=sk'),
       mk('📚 Materiály', '/auth/dok_server/?lang=sk'),
@@ -481,80 +531,57 @@
    * Karta: Rozvrh
    * ------------------------------------------------------------------ */
 
-  const ddmmyyyy = d => String(d.getDate()).padStart(2, '0') + '.' +
-    String(d.getMonth() + 1).padStart(2, '0') + '.' + d.getFullYear();
-
-  // Formulár rozvrhu je POST; prekopírujeme jeho vlastné polia a prepíšeme rozsah dní.
-  function serializeForm(doc, overrides) {
-    const params = new URLSearchParams();
-    doc.querySelectorAll('input, select').forEach(f => {
-      if (!f.name) return;
-      if ((f.type === 'radio' || f.type === 'checkbox') && !f.checked) return;
-      params.append(f.name, f.value);
-    });
-    Object.entries(overrides).forEach(([k, v]) => params.set(k, v));
-    return params;
+  // Rozvrhová mriežka je tá tabuľka s najviac riadkami, ktorá nie je formulár.
+  function gridFrom(doc) {
+    return [...doc.querySelectorAll('table')]
+      .filter(t => !t.querySelector('input, select') && t.rows.length > 1)
+      .sort((a, b) => b.rows.length - a.rows.length)[0] || null;
   }
 
-  async function renderSchedule(body) {
-    const doc = await studentDoc();
-    const link = linkByText(doc, 'Osobný rozvrh') || linkByText(doc, 'Personal timetable');
-    if (!link) throw new Error('Odkaz na osobný rozvrh sa nenašiel.');
+  // Osobný rozvrh vykreslí UIS ako mriežku deň × hodina rovno na GET; POST s
+  // vlastnými kritériami netreba. Farby prednášok a cvičení sú v triedach
+  // rozvrh-pred / rozvrh-cvic a šírky stĺpcov v atribútoch width – štýly UIS
+  // platia na celom /auth/, takže tabuľku iba prekopírujeme. Prefarbovať ju do
+  // .ub-table by z nej spravilo 143 nezmyselne úzkych stĺpcov.
+  async function renderSchedule(body, cardEl) {
+    let url = await personalScheduleUrl();
+    let grid = gridFrom(await fetchDoc(url));
 
-    const scheduleUrl = resolveHref(link.getAttribute('href'));
-    const formDoc = await fetchDoc(scheduleUrl);
+    // Zapamätaný odkaz môže byť z minulého semestra; raz to skúsime nanovo.
+    if (!grid) {
+      forgetScheduleUrl();
+      url = await personalScheduleUrl();
+      grid = gridFrom(await fetchDoc(url));
+    }
 
-    const from = new Date();
-    const to = new Date(from.getTime() + 6 * 864e5);
-    const params = serializeForm(formDoc, {
-      typ_vypisu: 'konani',
-      konani_od: ddmmyyyy(from),
-      konani_do: ddmmyyyy(to),
-      format: 'html',
-    });
+    const more = cardEl.querySelector('h2 a');
+    if (more) more.href = url;
 
-    const sd = await fetchDoc('/auth/katalog/rozvrhy_view.pl', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params.toString(),
-    });
-
-    // Rozvrhová tabuľka je tá s najviac riadkami, ktorá nie je formulár.
-    const tables = [...sd.querySelectorAll('table')]
-      .filter(t => !t.querySelector('input, select') && t.rows.length > 1)
-      .sort((a, b) => b.rows.length - a.rows.length);
-
-    const table = tables[0];
-    if (!table) {
+    if (!grid) {
       body.append(
-        el('p', { className: 'ub-empty', textContent: 'Na najbližších 7 dní nie je zverejnený žiadny rozvrh.' }),
-        el('p', {}, el('a', { href: scheduleUrl, textContent: 'Otvoriť nastavenie rozvrhu →' })),
+        el('p', { className: 'ub-empty', textContent: 'Rozvrh sa zatiaľ nedá zobraziť.' }),
+        el('p', {}, el('a', { href: url, textContent: 'Otvoriť rozvrh v UIS →' })),
       );
       return;
     }
 
-    const copy = table.cloneNode(true);
-    copy.className = 'ub-table';
-    copy.removeAttribute('style');
-    copy.querySelectorAll('[style], [width], [bgcolor]').forEach(n => {
-      n.removeAttribute('style'); n.removeAttribute('width'); n.removeAttribute('bgcolor');
-    });
-    // Odkazy v tabuľke sú relatívne voči /auth/katalog/, nie voči nástenke.
+    const copy = grid.cloneNode(true);
+    // Odkazy v mriežke sú relatívne voči /auth/katalog/, nie voči nástenke.
     const base = new URL('/auth/katalog/rozvrhy_view.pl', location.origin).href;
     copy.querySelectorAll('a[href]').forEach(a => {
       a.href = new URL(a.getAttribute('href'), base).href;
     });
-    body.append(el('div', { style: 'overflow-x:auto' }, copy));
+    body.append(el('div', { className: 'ub-timetable' }, copy));
   }
 
   /* ------------------------------------------------------------------ *
    * Skladanie kariet
    * ------------------------------------------------------------------ */
 
-  function card(title, moreHref, moreLabel) {
+  function card(title, moreHref, moreLabel, extraClass) {
     const bodyEl = el('div', { className: 'ub-card-body' },
       el('p', { className: 'ub-empty', textContent: 'Načítavam…' }));
-    const cardEl = el('div', { className: 'ub-card' },
+    const cardEl = el('div', { className: 'ub-card' + (extraClass ? ' ' + extraClass : '') },
       el('h2', {}, title, moreHref ? el('a', { href: moreHref, textContent: moreLabel }) : null),
       bodyEl);
     return { cardEl, bodyEl };
@@ -567,10 +594,10 @@
     if (!host) return;
     host.parentNode.insertBefore(wrap, host);
 
-    const load = (title, href, label, fn) => {
-      const { cardEl, bodyEl } = card(title, href, label);
+    const load = (title, href, label, fn, extraClass) => {
+      const { cardEl, bodyEl } = card(title, href, label, extraClass);
       wrap.append(cardEl);
-      fn(bodyEl)
+      fn(bodyEl, cardEl)
         .then(() => { const p = bodyEl.querySelector('p.ub-empty'); if (p && p.textContent === 'Načítavam…') p.remove(); })
         .catch(err => {
           bodyEl.textContent = '';
@@ -582,7 +609,8 @@
     };
 
     if (settings.showSchedule) {
-      load('🗓 Rozvrh – najbližších 7 dní', '/auth/katalog/rozvrhy_view.pl?lang=sk', 'celý rozvrh', renderSchedule);
+      load('🗓 Osobný rozvrh', '/auth/katalog/rozvrhy_view.pl?lang=sk', 'otvoriť v UIS',
+        renderSchedule, 'ub-wide');
     }
     if (settings.showGrades) {
       load('📊 Známky a kredity', '/auth/student/pruchod_studiem.pl?lang=sk', 'celý E-index', renderGrades);
